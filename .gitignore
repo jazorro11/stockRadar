@@ -1,0 +1,2 @@
+# Ignorar archivos de configuración local con variables de entorno
+.env
