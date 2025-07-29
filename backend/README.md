@@ -10,7 +10,11 @@ Este backend está desarrollado en Go y expone una API REST para consultar recom
 - CockroachDB (puedes usar un cluster local o en la nube)
 - Acceso a la API de Finnhub (requiere API Key)
 - Archivo `.env` con las siguientes variables:
-
+  ```env
+  API_URL=https://<tu_api_de_recomendaciones>
+  API_KEY=<tu_api_key_de_recomendaciones>
+  FINNHUB_API_KEY=<tu_api_key_de_finnhub>
+  COCKROACHDB_URL=postgresql://<usuario>:<contraseña>@<host>:<puerto>/<db>?sslmode=disable
 ---
 
 ## Instalación y ejecución local
@@ -41,6 +45,7 @@ Este backend está desarrollado en Go y expone una API REST para consultar recom
 
 ---
 ## ¿Por qué el servidor está alojado localmente?
+
 El backend se ejecuta localmente para facilitar el desarrollo, pruebas y depuración. Puedes conectarlo fácilmente con el frontend (por ejemplo, en Vue) y con tu base de datos CockroachDB, ya sea local o en la nube.
 En producción, puedes desplegarlo en cualquier servidor compatible con Go (VPS, Docker, servicios cloud, etc).
 ---
