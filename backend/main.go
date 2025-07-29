@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5" // Importa el paquete pgx para manejar conexiones a bases de datos PostgreSQL.
 	//go get github.com/jackc/pgx/v5
 	"time"
+
+	finnhub "github.com/Finnhub-Stock-API/finnhub-go/v2"
 )
 
 // Definimos la estructura que representa la respuesta principal de la API.
@@ -39,8 +41,60 @@ type StockInfo struct {
 	TargetFrom  string `json:"target_from"`  // Precio objetivo anterior.
 	TargetTo    string `json:"target_to"`    // Precio objetivo nuevo.
 	StockTime   string `json:"time"`   // Momento en que se emitió la recomendación.
+    MarketCap             float64 `json:"market_cap"`
+    EpsTTM                float64 `json:"eps_ttm"`
+    PeTTM                 float64 `json:"pe_ttm"`
+    Pb                    float64 `json:"pb"`
+    DividendYield         float64 `json:"dividend_yield"`
+    Week52High            float64 `json:"week_52_high"`
+    Week52Low             float64 `json:"week_52_low"`
+    RevenueGrowthTTMYoy   float64 `json:"revenue_growth_ttm_yoy"`
+    NetProfitMarginTTM    float64 `json:"net_profit_margin_ttm"`
+    Beta                  float64 `json:"beta"`
 }
 
+func enrichWithFinnhub(stock *StockInfo) error {
+    apiKey := os.Getenv("FINNHUB_API_KEY")
+    cfg := finnhub.NewConfiguration()
+    cfg.AddDefaultHeader("X-Finnhub-Token", apiKey)
+    client := finnhub.NewAPIClient(cfg).DefaultApi
+
+    basicFinancials, _, err := client.CompanyBasicFinancials(context.Background()).Symbol(stock.Ticker).Metric("all").Execute()
+    if err == nil && basicFinancials.Metric != nil {
+        m := *basicFinancials.Metric
+        if v, ok := m["marketCapitalization"].(float64); ok {
+            stock.MarketCap = v
+        }
+        if v, ok := m["epsTTM"].(float64); ok {
+            stock.EpsTTM = v
+        }
+        if v, ok := m["peBasicTrailing12Months"].(float64); ok {
+            stock.PeTTM = v
+        }
+        if v, ok := m["pbAnnual"].(float64); ok {
+            stock.Pb = v
+        }
+        if v, ok := m["dividendYieldIndicatedAnnual"].(float64); ok {
+            stock.DividendYield = v
+        }
+        if v, ok := m["52WeekHigh"].(float64); ok {
+            stock.Week52High = v
+        }
+        if v, ok := m["52WeekLow"].(float64); ok {
+            stock.Week52Low = v
+        }
+        if v, ok := m["revenueGrowthTTMYoy"].(float64); ok {
+            stock.RevenueGrowthTTMYoy = v
+        }
+        if v, ok := m["netProfitMarginTTM"].(float64); ok {
+            stock.NetProfitMarginTTM = v
+        }
+        if v, ok := m["beta"].(float64); ok {
+            stock.Beta = v
+        }
+    }
+    return nil
+}
 
 func getStocksHandler(w http.ResponseWriter, r *http.Request) {
 
@@ -62,7 +116,9 @@ func getStocksHandler(w http.ResponseWriter, r *http.Request) {
     }
     defer conn.Close(context.Background())
 
-    rows, err := conn.Query(context.Background(), `SELECT ticker, company, brokerage, stock_action, rating_from, rating_to, target_from, target_to, stock_time FROM stock_info`)
+    rows, err := conn.Query(context.Background(), `SELECT ticker, company, brokerage, stock_action, rating_from, rating_to, target_from, target_to, 
+    stock_time, market_cap, eps_ttm, pe_ttm, pb, dividend_yield, week_52_high, week_52_low, revenue_growth_ttm_yoy, 
+    net_profit_margin_ttm, beta FROM stock_info`)
     if err != nil {
         http.Error(w, "DB query error", http.StatusInternalServerError)
         return
@@ -83,6 +139,16 @@ func getStocksHandler(w http.ResponseWriter, r *http.Request) {
             &s.TargetFrom,
             &s.TargetTo,
             &stockTime,
+            &s.MarketCap,
+            &s.EpsTTM,
+            &s.PeTTM,
+            &s.Pb,
+            &s.DividendYield,
+            &s.Week52High,
+            &s.Week52Low,
+            &s.RevenueGrowthTTMYoy,
+            &s.NetProfitMarginTTM,
+            &s.Beta,
         )
         if err != nil {
             http.Error(w, "DB scan error", http.StatusInternalServerError)
@@ -162,11 +228,17 @@ func main() {
 		os.Exit(1)
 	}
 
+    for i := range apiResp.Items {
+        err := enrichWithFinnhub(&apiResp.Items[i])
+        if err != nil {
+            fmt.Printf("Finnhub error for %s: %v\n", apiResp.Items[i].Ticker, err)
+        }
+    }
 	// Recorremos cada acción recibida del API y la imprimimos en un formato legible.
 	for _, stock := range apiResp.Items {
 		// Mostramos los detalles clave de cada recomendación de acción en una sola línea formateada.
 		fmt.Printf(
-			"Ticker: %s | Company: %s | Brokerage: %s | Action: %s | Rating: %s → %s | Target: %s → %s | Time: %s\n",
+			"Ticker: %s | Company: %s | Brokerage: %s | Action: %s | Rating: %s → %s | Target: %s → %s | Time: %s\n | Market Cap: %s | EPS: %s | P/E: %s | P/B: %s | Dividend Yield: %s | 52W High: %s | 52W Low: %s | Revenue Growth: %s | Net Profit Margin: %s | Beta: %s",
 			stock.Ticker,
 			stock.Company,
 			stock.Brokerage,
@@ -176,6 +248,16 @@ func main() {
 			stock.TargetFrom,
 			stock.TargetTo,
 			stock.StockTime,
+            stock.MarketCap,
+            stock.EpsTTM,
+            stock.PeTTM,
+            stock.Pb,
+            stock.DividendYield,
+            stock.Week52High,
+            stock.Week52Low,
+            stock.RevenueGrowthTTMYoy,
+            stock.NetProfitMarginTTM,
+            stock.Beta,
 		)
 	}
 
@@ -204,6 +286,16 @@ func main() {
             rating_to STRING,
             target_from STRING,
             target_to STRING,
+            market_cap FLOAT8,
+            eps_ttm FLOAT8,
+            pe_ttm FLOAT8,
+            pb FLOAT8,
+            dividend_yield FLOAT8,
+            week_52_high FLOAT8,
+            week_52_low FLOAT8,
+            revenue_growth_ttm_yoy FLOAT8,
+            net_profit_margin_ttm FLOAT8,
+            beta FLOAT8,
             PRIMARY KEY (ticker, stock_time)
             );
     `)
@@ -219,9 +311,12 @@ func main() {
         _, err := conn.Exec(context.Background(),
             `UPSERT INTO stock_info (
                 ticker, company, brokerage, stock_action,
-                rating_from, rating_to, target_from, target_to, stock_time
+                rating_from, rating_to, target_from, target_to, stock_time,
+                market_cap, eps_ttm, pe_ttm, pb, dividend_yield,
+                week_52_high, week_52_low, revenue_growth_ttm_yoy,
+                net_profit_margin_ttm, beta
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, // Usamos placeholders para evitar SQL injection
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`, // Usamos placeholders para evitar SQL injection
             stock.Ticker,       // $1 → símbolo de la acción
             stock.Company,      // $2 → nombre de la empresa
             stock.Brokerage,    // $3 → casa de bolsa
@@ -231,6 +326,16 @@ func main() {
             stock.TargetFrom,   // $7 → precio objetivo anterior
             stock.TargetTo,     // $8 → nuevo precio objetivo
             stock.StockTime,         // $9 → marca de tiempo
+            stock.MarketCap,    // $10 → capitalización de mercado  
+            stock.EpsTTM,       // $11 → ganancias por acción (EPS) en los últimos 12 meses
+            stock.PeTTM,        // $12 → relación precio/ganancias (P/E) en los últimos 12 meses
+            stock.Pb,           // $13 → relación precio/valor contable (P/B        
+            stock.DividendYield, // $14 → rendimiento por dividendo
+            stock.Week52High,   // $15 → máximo de 52 semanas
+            stock.Week52Low,    // $16 → mínimo de 52 semanas
+            stock.RevenueGrowthTTMYoy, // $17 → crecimiento de ingresos interanual
+            stock.NetProfitMarginTTM, // $18 → margen de beneficio neto
+            stock.Beta,        // $19 → beta (volatilidad relativa)
         )
 
         // Si ocurre un error al insertar esta fila, lo mostramos
