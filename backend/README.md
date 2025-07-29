@@ -64,77 +64,61 @@ Actualizar dependencias:
 go get -u
  ```
 ---
-## Diccionario de funciones y módulos
+## Diccionario
 
 ### Funciones principales
 
----
+| Función | Parámetros | Output | Descripción |
+|--------|------------|--------|-------------|
+| `main()` | Ninguno | Ninguno *(efectos colaterales: ejecuta todo el flujo del backend)* | Orquesta la carga de variables de entorno, consulta la API externa, enriquece los datos con Finnhub, calcula el score, almacena en CockroachDB y expone la API REST. |
+| `enrichWithFinnhub(stock *StockInfo) error` | `stock`: puntero a `StockInfo` | `error`: si falla la consulta a Finnhub | Enriquece los datos con información de Finnhub: precio actual, market cap, EPS, P/E, P/B, dividend yield, 52W high/low, revenue growth, net profit margin y beta. |
+| `scoreStock(stock StockInfo) float64` | `stock`: estructura con campos numéricos | `float64`: puntaje calculado | Calcula un puntaje cuantitativo para cada acción según sus métricas. |
+| `getStocksHandler(w http.ResponseWriter, r *http.Request)` | `w`: ResponseWriter, `r`: Request | Ninguno *(responde con JSON)* | Expone los datos de acciones vía API REST en `/stocks`. |
+| `parseDollarString(val string) (float64, error)` | `val`: string con `$` y/o comas | `float64`: valor numérico <br> `error`: si la conversión falla | Convierte strings con símbolos de dólar y comas a `float64`. |
+| `UnmarshalJSON` *(método de `StockInfo`)* | `data`: bytes JSON | `error`: si la conversión falla | Convierte `target_from` y `target_to` de string con `$` a `float64` al deserializar JSON. |
 
-#### `main()`
-
-- **Parámetros:** ninguno  
-- **Output:** ninguno *(efectos colaterales: ejecuta todo el flujo del backend)*  
-- **Descripción:**  
-  Orquesta la carga de variables de entorno, consulta la API externa, enriquece los datos con Finnhub, calcula el score, almacena en CockroachDB y expone la API REST.
-
----
-
-#### `enrichWithFinnhub(stock *StockInfo) error`
-
-- **Parámetros:**
-  - `stock`: puntero a una estructura `StockInfo` que será enriquecida con datos de Finnhub.
-- **Output:**
-  - `error`: retorna un error si falla la consulta a Finnhub, en caso contrario retorna `nil`.
-- **Descripción:**  
-  Enriquecimiento de cada acción con datos de Finnhub: precio actual, market cap, EPS, P/E, P/B, dividend yield, 52W high/low, revenue growth, net profit margin y beta.
+### Estructuras principales
 
 ---
 
-#### `scoreStock(stock StockInfo) float64`
+### `StockInfo`
 
-- **Parámetros:**
-  - `stock`: estructura `StockInfo` con todos los campos numéricos relevantes.
-- **Output:**
-  - `float64`: el puntaje calculado para la acción.
-- **Descripción:**  
-  Calcula un puntaje cuantitativo para cada acción usando todos los campos numéricos relevantes.
+Representa una acción bursátil con todos los campos relevantes.
 
----
-
-#### `getStocksHandler(w http.ResponseWriter, r *http.Request)`
-
-- **Parámetros:**
-  - `w`: `ResponseWriter` de HTTP para enviar la respuesta.
-  - `r`: `Request` de HTTP recibido.
-- **Output:** ninguno *(efectos colaterales: responde con JSON)*  
-- **Descripción:**  
-  Handler HTTP que expone los datos almacenados en la base de datos vía API REST en `/stocks`.
-
----
-
-#### `parseDollarString(val string) (float64, error)`
-
-- **Parámetros:**
-  - `val`: string que puede contener un valor numérico con símbolo `$` y/o comas.
-- **Output:**
-  - `float64`: valor numérico convertido.
-  - `error`: error si la conversión falla.
-- **Descripción:**  
-  Convierte strings con símbolo `$` a `float64`.
+| Campo                     | Tipo     | Descripción                                      |
+|--------------------------|----------|--------------------------------------------------|
+| `ticker`                 | string   | Símbolo bursátil de la acción                    |
+| `company`                | string   | Nombre de la empresa                             |
+| `brokerage`              | string   | Nombre del bróker que reporta la recomendación   |
+| `action`                 | string   | Tipo de recomendación (ej: "Buy", "Hold", etc.)  |
+| `rating_from`            | string   | Calificación anterior del bróker                 |
+| `rating_to`              | string   | Nueva calificación otorgada                      |
+| `target_from`            | float64  | Precio objetivo anterior                         |
+| `target_to`              | float64  | Precio objetivo nuevo                            |
+| `time` / `stock_time`    | string   | Momento de la recomendación (formato ISO 8601)   |
+| `market_cap`             | float64  | Capitalización de mercado                        |
+| `eps_ttm`                | float64  | Ganancias por acción (últimos 12 meses)          |
+| `pe_ttm`                 | float64  | Relación precio/ganancias (últimos 12 meses)     |
+| `pb`                     | float64  | Relación precio/valor contable                   |
+| `dividend_yield`         | float64  | Rendimiento por dividendo                        |
+| `week_52_high`           | float64  | Máximo de 52 semanas                             |
+| `week_52_low`            | float64  | Mínimo de 52 semanas                             |
+| `revenue_growth_ttm_yoy`| float64  | Crecimiento de ingresos interanual               |
+| `net_profit_margin_ttm` | float64  | Margen de beneficio neto                         |
+| `beta`                   | float64  | Beta (volatilidad relativa)                      |
+| `current_price`          | float64  | Precio actual de la acción                       |
+| `score`                  | float64  | Puntaje calculado según criterios cuantitativos  |
 
 ---
 
-#### `UnmarshalJSON` (método de `StockInfo`)
+### `ApiResponse`
 
-- **Parámetros:**
-  - `data`: bytes JSON a deserializar.
-- **Output:**
-  - `error`: error si la conversión falla.
-- **Descripción:**  
-  Método personalizado para convertir los campos `target_from` y `target_to` de string (con `$`) a `float64` al deserializar el JSON.
+| Campo       | Tipo         | Descripción                                 |
+|-------------|--------------|---------------------------------------------|
+| `items`     | []StockInfo  | Lista de acciones recibidas del API         |
+| `next_page` | string       | Token de paginación (opcional)              |
 
----
-## Módulos y paquetes usados
+### Módulos y paquetes usados
 
 | Paquete | Descripción |
 |--------|-------------|
