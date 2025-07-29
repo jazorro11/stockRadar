@@ -8,6 +8,8 @@ import (
 	"io"            // Proporciona utilidades para leer el cuerpo de la respuesta HTTP.
 	"net/http"      // Permite crear clientes HTTP y hacer solicitudes.
 	"os"            // Permite interactuar con el sistema operativo (ej: salir del programa con os.Exit).
+	"strconv"       // Permite convertir cadenas a otros tipos de datos.
+	"strings"       // Permite manipular cadenas de texto.
 
 	"github.com/joho/godotenv" // opcional, para cargar .env en local
 	// This will create a go.mod file and allow you to use external packages like github.com/joho/godotenv.
@@ -38,8 +40,8 @@ type StockInfo struct {
 	StockAction string `json:"action"`       // Tipo de recomendación (ej: "Buy", "Hold", etc).
 	RatingFrom  string `json:"rating_from"`  // Calificación anterior del bróker.
 	RatingTo    string `json:"rating_to"`    // Nueva calificación otorgada.
-	TargetFrom  string `json:"target_from"`  // Precio objetivo anterior.
-	TargetTo    string `json:"target_to"`    // Precio objetivo nuevo.
+	TargetFrom  float64 `json:"target_from"`  // Precio objetivo anterior.
+	TargetTo    float64 `json:"target_to"`    // Precio objetivo nuevo.
 	StockTime   string `json:"time"`   // Momento en que se emitió la recomendación.
     MarketCap             float64 `json:"market_cap"`
     EpsTTM                float64 `json:"eps_ttm"`
@@ -51,6 +53,32 @@ type StockInfo struct {
     RevenueGrowthTTMYoy   float64 `json:"revenue_growth_ttm_yoy"`
     NetProfitMarginTTM    float64 `json:"net_profit_margin_ttm"`
     Beta                  float64 `json:"beta"`
+    CurrentPrice           float64 `json:"current_price"`
+    Score                  float64 `json:"score"`
+}
+
+// Custom unmarshal to handle "$" and convert to float64
+func (s *StockInfo) UnmarshalJSON(data []byte) error {
+    type Alias StockInfo
+    aux := &struct {
+        TargetFrom string `json:"target_from"`
+        TargetTo   string `json:"target_to"`
+        *Alias
+    }{
+        Alias: (*Alias)(s),
+    }
+    if err := json.Unmarshal(data, &aux); err != nil {
+        return err
+    }
+    s.TargetFrom, _ = parseDollarString(aux.TargetFrom)
+    s.TargetTo, _ = parseDollarString(aux.TargetTo)
+    return nil
+}
+
+func parseDollarString(val string) (float64, error) {
+    val = strings.ReplaceAll(val, "$", "")
+    val = strings.ReplaceAll(val, ",", "")
+    return strconv.ParseFloat(val, 64)
 }
 
 func enrichWithFinnhub(stock *StockInfo) error {
@@ -58,6 +86,14 @@ func enrichWithFinnhub(stock *StockInfo) error {
     cfg := finnhub.NewConfiguration()
     cfg.AddDefaultHeader("X-Finnhub-Token", apiKey)
     client := finnhub.NewAPIClient(cfg).DefaultApi
+
+    quote, _, err := client.Quote(context.Background()).Symbol(stock.Ticker).Execute()
+    if err != nil {
+        return err
+    }
+    if quote.C != nil {
+        stock.CurrentPrice = float64(*quote.C) // Current price
+    }
 
     basicFinancials, _, err := client.CompanyBasicFinancials(context.Background()).Symbol(stock.Ticker).Metric("all").Execute()
     if err == nil && basicFinancials.Metric != nil {
@@ -96,6 +132,77 @@ func enrichWithFinnhub(stock *StockInfo) error {
     return nil
 }
 
+func scoreStock(stock StockInfo) float64 {
+    score := 0.0
+
+    // 1. Potencial de ganancia (target - actual) / actual
+    if stock.CurrentPrice > 0 && stock.TargetTo > 0 {
+        potential := (stock.TargetTo - stock.CurrentPrice) / stock.CurrentPrice
+        score += potential * 100 // convertir a %
+    }
+
+    // 2. Precio objetivo anterior (TargetFrom): bonifica si el nuevo target es mayor
+    if stock.TargetFrom > 0 && stock.TargetTo > stock.TargetFrom {
+        score += (stock.TargetTo - stock.TargetFrom) * 0.1
+    }
+
+    // 3. Market Cap: bonifica empresas grandes, penaliza muy pequeñas
+    if stock.MarketCap > 1e10 {
+        score += 2
+    } else if stock.MarketCap < 1e9 {
+        score -= 2
+    }
+
+    // 4. EPS TTM: bonifica EPS positivo
+    if stock.EpsTTM > 0 {
+        score += stock.EpsTTM * 0.1
+    }
+
+    // 5. P/E TTM: menor a 20 es razonable
+    if stock.PeTTM > 0 && stock.PeTTM < 20 {
+        score += (20 - stock.PeTTM) * 0.5
+    } else if stock.PeTTM <= 0 {
+        score -= 5 // castigo por no tener ganancias
+    }
+
+    // 6. P/B: menor a 3 es razonable
+    if stock.Pb > 0 && stock.Pb < 3 {
+        score += (3 - stock.Pb) * 2
+    }
+
+    // 7. Dividend Yield: bonifica yield alto
+    if stock.DividendYield > 1 {
+        score += stock.DividendYield * 0.5
+    }
+
+    // 8. 52 Week High/Low: bonifica si el precio actual está más cerca del mínimo anual
+    if stock.Week52High > 0 && stock.Week52Low > 0 && stock.CurrentPrice > 0 {
+        rel := (stock.CurrentPrice - stock.Week52Low) / (stock.Week52High - stock.Week52Low)
+        score += (1 - rel) * 2 // más cerca del mínimo, mejor
+    }
+
+    // 9. Revenue Growth YoY: bonifica crecimiento
+    score += stock.RevenueGrowthTTMYoy * 0.2
+
+    // 10. Net Profit Margin TTM: bonifica margen positivo
+    if stock.NetProfitMarginTTM > 0 {
+        score += stock.NetProfitMarginTTM * 0.2
+    } else {
+        score += stock.NetProfitMarginTTM * 0.1 // penaliza menos los negativos
+    }
+
+    // 11. Beta: ideal entre 0.8 y 1.2
+    if stock.Beta >= 0.8 && stock.Beta <= 1.2 {
+        score += 3
+    } else if stock.Beta < 0.8 {
+        score += 1
+    } else {
+        score -= 2
+    }
+
+    return score
+}
+
 func getStocksHandler(w http.ResponseWriter, r *http.Request) {
 
     // Allow CORS for local development
@@ -118,7 +225,7 @@ func getStocksHandler(w http.ResponseWriter, r *http.Request) {
 
     rows, err := conn.Query(context.Background(), `SELECT ticker, company, brokerage, stock_action, rating_from, rating_to, target_from, target_to, 
     stock_time, market_cap, eps_ttm, pe_ttm, pb, dividend_yield, week_52_high, week_52_low, revenue_growth_ttm_yoy, 
-    net_profit_margin_ttm, beta FROM stock_info`)
+    net_profit_margin_ttm, beta , current_price, score FROM stock_info`)
     if err != nil {
         http.Error(w, "DB query error", http.StatusInternalServerError)
         return
@@ -149,6 +256,8 @@ func getStocksHandler(w http.ResponseWriter, r *http.Request) {
             &s.RevenueGrowthTTMYoy,
             &s.NetProfitMarginTTM,
             &s.Beta,
+            &s.CurrentPrice,
+            &s.Score, // Asegúrate de que este campo esté en la consulta SQL
         )
         if err != nil {
             http.Error(w, "DB scan error", http.StatusInternalServerError)
@@ -234,11 +343,15 @@ func main() {
             fmt.Printf("Finnhub error for %s: %v\n", apiResp.Items[i].Ticker, err)
         }
     }
+    // After enrichment:
+    for i := range apiResp.Items {
+        apiResp.Items[i].Score = scoreStock(apiResp.Items[i])
+    }
 	// Recorremos cada acción recibida del API y la imprimimos en un formato legible.
 	for _, stock := range apiResp.Items {
 		// Mostramos los detalles clave de cada recomendación de acción en una sola línea formateada.
 		fmt.Printf(
-			"Ticker: %s | Company: %s | Brokerage: %s | Action: %s | Rating: %s → %s | Target: %s → %s | Time: %s\n | Market Cap: %s | EPS: %s | P/E: %s | P/B: %s | Dividend Yield: %s | 52W High: %s | 52W Low: %s | Revenue Growth: %s | Net Profit Margin: %s | Beta: %s",
+			"Ticker: %s | Company: %s | Brokerage: %s | Action: %s | Rating: %s → %s | Target: %s → %s | Time: %s\n | Market Cap: %s | EPS: %s | P/E: %s | P/B: %s | Dividend Yield: %s | 52W High: %s | 52W Low: %s | Revenue Growth: %s | Net Profit Margin: %s | Beta: %s | Current Price: %s | Score: %.2f\n",
 			stock.Ticker,
 			stock.Company,
 			stock.Brokerage,
@@ -258,6 +371,8 @@ func main() {
             stock.RevenueGrowthTTMYoy,
             stock.NetProfitMarginTTM,
             stock.Beta,
+            stock.CurrentPrice,
+            stock.Score,
 		)
 	}
 
@@ -284,8 +399,8 @@ func main() {
             stock_action STRING,
             rating_from STRING,
             rating_to STRING,
-            target_from STRING,
-            target_to STRING,
+            target_from FLOAT8,
+            target_to FLOAT8,
             market_cap FLOAT8,
             eps_ttm FLOAT8,
             pe_ttm FLOAT8,
@@ -296,6 +411,8 @@ func main() {
             revenue_growth_ttm_yoy FLOAT8,
             net_profit_margin_ttm FLOAT8,
             beta FLOAT8,
+            current_price FLOAT8,
+            score FLOAT8,
             PRIMARY KEY (ticker, stock_time)
             );
     `)
@@ -314,9 +431,9 @@ func main() {
                 rating_from, rating_to, target_from, target_to, stock_time,
                 market_cap, eps_ttm, pe_ttm, pb, dividend_yield,
                 week_52_high, week_52_low, revenue_growth_ttm_yoy,
-                net_profit_margin_ttm, beta
+                net_profit_margin_ttm, beta, current_price, score
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`, // Usamos placeholders para evitar SQL injection
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`, // Usamos placeholders para evitar SQL injection
             stock.Ticker,       // $1 → símbolo de la acción
             stock.Company,      // $2 → nombre de la empresa
             stock.Brokerage,    // $3 → casa de bolsa
@@ -336,6 +453,8 @@ func main() {
             stock.RevenueGrowthTTMYoy, // $17 → crecimiento de ingresos interanual
             stock.NetProfitMarginTTM, // $18 → margen de beneficio neto
             stock.Beta,        // $19 → beta (volatilidad relativa)
+            stock.CurrentPrice, // $20 → precio actual
+            stock.Score,         // $21 → puntaje calculado
         )
 
         // Si ocurre un error al insertar esta fila, lo mostramos
