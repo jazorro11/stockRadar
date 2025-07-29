@@ -13,10 +13,11 @@ import (
 	// This will create a go.mod file and allow you to use external packages like github.com/joho/godotenv.
 	//go mod init stockradar
 	//go get github.com/joho/godotenv
-    "context"
-    "github.com/jackc/pgx/v5" // Importa el paquete pgx para manejar conexiones a bases de datos PostgreSQL.
-    //go get github.com/jackc/pgx/v5
+	"context"
 
+	"github.com/jackc/pgx/v5" // Importa el paquete pgx para manejar conexiones a bases de datos PostgreSQL.
+	//go get github.com/jackc/pgx/v5
+	"time"
 )
 
 // Definimos la estructura que representa la respuesta principal de la API.
@@ -32,12 +33,67 @@ type StockInfo struct {
 	Ticker      string `json:"ticker"`       // Símbolo bursátil de la acción.
 	Company     string `json:"company"`      // Nombre de la empresa.
 	Brokerage   string `json:"brokerage"`    // Nombre del bróker que reporta la recomendación.
-	Action      string `json:"action"`       // Tipo de recomendación (ej: "Buy", "Hold", etc).
+	StockAction string `json:"action"`       // Tipo de recomendación (ej: "Buy", "Hold", etc).
 	RatingFrom  string `json:"rating_from"`  // Calificación anterior del bróker.
 	RatingTo    string `json:"rating_to"`    // Nueva calificación otorgada.
 	TargetFrom  string `json:"target_from"`  // Precio objetivo anterior.
 	TargetTo    string `json:"target_to"`    // Precio objetivo nuevo.
-	Time        string `json:"time"`         // Momento en que se emitió la recomendación.
+	StockTime   string `json:"time"`   // Momento en que se emitió la recomendación.
+}
+
+
+func getStocksHandler(w http.ResponseWriter, r *http.Request) {
+
+    // Allow CORS for local development
+    w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+    w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+    w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+    // Handle preflight requests
+    if r.Method == "OPTIONS" {
+        w.WriteHeader(http.StatusOK)
+        return
+    }
+
+    conn, err := pgx.Connect(context.Background(), os.Getenv("COCKROACHDB_URL"))
+    if err != nil {
+        http.Error(w, "DB connection error", http.StatusInternalServerError)
+        return
+    }
+    defer conn.Close(context.Background())
+
+    rows, err := conn.Query(context.Background(), `SELECT ticker, company, brokerage, stock_action, rating_from, rating_to, target_from, target_to, stock_time FROM stock_info`)
+    if err != nil {
+        http.Error(w, "DB query error", http.StatusInternalServerError)
+        return
+    }
+    defer rows.Close()
+
+    var stocks []StockInfo
+    for rows.Next() {
+        var s StockInfo
+        var stockTime time.Time
+        err := rows.Scan(
+            &s.Ticker,
+            &s.Company,
+            &s.Brokerage,
+            &s.StockAction,
+            &s.RatingFrom,
+            &s.RatingTo,
+            &s.TargetFrom,
+            &s.TargetTo,
+            &stockTime,
+        )
+        if err != nil {
+            http.Error(w, "DB scan error", http.StatusInternalServerError)
+            return
+        }
+        s.StockTime = stockTime.Format(time.RFC3339) // Convert to string
+        stocks = append(stocks, s)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(stocks)
 }
 
 func main() {
@@ -114,12 +170,12 @@ func main() {
 			stock.Ticker,
 			stock.Company,
 			stock.Brokerage,
-			stock.Action,
+			stock.StockAction,
 			stock.RatingFrom,
 			stock.RatingTo,
 			stock.TargetFrom,
 			stock.TargetTo,
-			stock.Time,
+			stock.StockTime,
 		)
 	}
 
@@ -139,16 +195,17 @@ func main() {
     // Ejecuta una sentencia SQL para crear una tabla llamada 'stock_info' si no existe aún.
     _, err = conn.Exec(context.Background(), `
         CREATE TABLE IF NOT EXISTS stock_info (
-            ticker STRING,        -- Símbolo bursátil (ej: AAPL, TSLA)
-            company STRING,       -- Nombre de la empresa
-            brokerage STRING,     -- Casa de bolsa que emitió la recomendación
-            action STRING,        -- Acción recomendada (ej: Buy, Hold, Sell)
-            rating_from STRING,   -- Calificación anterior (ej: Neutral)
-            rating_to STRING,     -- Nueva calificación (ej: Buy)
-            target_from STRING,   -- Precio objetivo anterior
-            target_to STRING,     -- Precio objetivo actualizado
-            time STRING           -- Marca de tiempo (puede ser fecha o fecha-hora)
-        )
+            ticker STRING,
+            stock_time TIMESTAMPTZ,
+            company STRING,
+            brokerage STRING,
+            stock_action STRING,
+            rating_from STRING,
+            rating_to STRING,
+            target_from STRING,
+            target_to STRING,
+            PRIMARY KEY (ticker, stock_time)
+            );
     `)
     if err != nil {
         // Si hubo un error creando la tabla, se muestra y el programa termina
@@ -158,22 +215,22 @@ func main() {
 
     // Recorremos cada acción bursátil recibida del API
     for _, stock := range apiResp.Items {
-        // Ejecutamos una sentencia INSERT para guardar cada acción en la tabla 'stock_info'
+        // Ejecutamos una sentencia UPSERT para guardar cada acción en la tabla 'stock_info'
         _, err := conn.Exec(context.Background(),
-            `INSERT INTO stock_info (
-                ticker, company, brokerage, action,
-                rating_from, rating_to, target_from, target_to, time
+            `UPSERT INTO stock_info (
+                ticker, company, brokerage, stock_action,
+                rating_from, rating_to, target_from, target_to, stock_time
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, // Usamos placeholders para evitar SQL injection
             stock.Ticker,       // $1 → símbolo de la acción
             stock.Company,      // $2 → nombre de la empresa
             stock.Brokerage,    // $3 → casa de bolsa
-            stock.Action,       // $4 → acción recomendada (ej: Buy)
+            stock.StockAction,       // $4 → acción recomendada (ej: Buy)
             stock.RatingFrom,   // $5 → calificación anterior
             stock.RatingTo,     // $6 → nueva calificación
             stock.TargetFrom,   // $7 → precio objetivo anterior
             stock.TargetTo,     // $8 → nuevo precio objetivo
-            stock.Time,         // $9 → marca de tiempo
+            stock.StockTime,         // $9 → marca de tiempo
         )
 
         // Si ocurre un error al insertar esta fila, lo mostramos
@@ -184,4 +241,8 @@ func main() {
 
     // Mensaje final confirmando que los datos fueron insertados sin errores críticos
     fmt.Println("Datos almacenados en CockroachDB correctamente.")
+
+	http.HandleFunc("/stocks", getStocksHandler)
+    fmt.Println("Backend API running at http://localhost:8080")
+    http.ListenAndServe(":8080", nil)
 }
