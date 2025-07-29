@@ -29,8 +29,7 @@ Este backend está desarrollado en Go y expone una API REST para consultar recom
  go mod tidy
  ```
 3. **Configura el archivo `.env`:**
-   - Copia el archivo `.env.example` a `.env`
-   - Completa las variables necesarias, como `FINNHUB_API_KEY` y los detalles de conexión a CockroachDB.
+    - Completa las variables necesarias, como `FINNHUB_API_KEY` y los detalles de conexión a CockroachDB.
 4. **Ejecuta las migraciones de la base de datos:**
  ```sh
  migrate -path db/migrations -database "cockroachdb://<usuario>:<password>@<host>:<puerto>/<nombre-db>?sslmode=disable" up
@@ -46,8 +45,10 @@ Este backend está desarrollado en Go y expone una API REST para consultar recom
 ---
 ## ¿Por qué el servidor está alojado localmente?
 
-El backend se ejecuta localmente para facilitar el desarrollo, pruebas y depuración. Puedes conectarlo fácilmente con el frontend (por ejemplo, en Vue) y con tu base de datos CockroachDB, ya sea local o en la nube.
+**El backend se ejecuta localmente** para facilitar el desarrollo, pruebas y depuración.  
+Puedes conectarlo fácilmente con el frontend (por ejemplo, en Vue) y con tu base de datos CockroachDB, ya sea local o en la nube.  
 En producción, puedes desplegarlo en cualquier servidor compatible con Go (VPS, Docker, servicios cloud, etc).
+
 ---
 ## Comandos útiles
 Instalar dependencias:
