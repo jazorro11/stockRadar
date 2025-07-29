@@ -7,13 +7,10 @@
 ## Estructura del proyecto
 
 StockRadar/
-│
 ├── backend/ # API REST en Go, integración con Finnhub y CockroachDB
 │ └── README.md
-│
 ├── frontend/ # Aplicación web en Vue 3 + Pinia + Tailwind CSS
 │ └── README.md
-│
 └── README.md # (este archivo)
 
 ---
@@ -40,7 +37,7 @@ StockRadar/
 
 ---
 
-## 🚀 ¿Cómo correr el proyecto?
+## ¿Cómo correr el proyecto?
 
 ### 1. Clona el repositorio
 
