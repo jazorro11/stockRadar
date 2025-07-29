@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5" // Importa el paquete pgx para manejar conexiones a bases de datos PostgreSQL.
 	//go get github.com/jackc/pgx/v5
+	"strconv"
 	"time"
 )
 
@@ -39,6 +40,38 @@ type StockInfo struct {
 	TargetFrom  string `json:"target_from"`  // Precio objetivo anterior.
 	TargetTo    string `json:"target_to"`    // Precio objetivo nuevo.
 	StockTime   string `json:"time"`   // Momento en que se emitió la recomendación.
+    CurrentPrice float64 `json:"current_price"`
+}
+
+type AlphaVantageQuote struct {
+    GlobalQuote struct {
+        Symbol string `json:"01. symbol"`
+        Price  string `json:"05. price"`
+    } `json:"Global Quote"`
+}
+
+func fetchAlphaVantagePrice(ticker string) (float64, error) {
+    apiKey := "BS9H272QMI58PWJP"
+    url := "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=" + ticker + "&apikey=" + apiKey
+    resp, err := http.Get(url)
+    if err != nil {
+        return 0, err
+    }
+    defer resp.Body.Close()
+
+    var data AlphaVantageQuote
+    if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+        return 0, err
+    }
+    priceStr := data.GlobalQuote.Price
+    if priceStr == "" {
+        return 0, fmt.Errorf("no price found for %s", ticker)
+    }
+    price, err := strconv.ParseFloat(priceStr, 64)
+    if err != nil {
+        return 0, err
+    }
+    return price, nil
 }
 
 
@@ -62,7 +95,7 @@ func getStocksHandler(w http.ResponseWriter, r *http.Request) {
     }
     defer conn.Close(context.Background())
 
-    rows, err := conn.Query(context.Background(), `SELECT ticker, company, brokerage, stock_action, rating_from, rating_to, target_from, target_to, stock_time FROM stock_info`)
+    rows, err := conn.Query(context.Background(), `SELECT ticker, company, brokerage, stock_action, rating_from, rating_to, target_from, target_to, stock_time, current_price FROM stock_info`)
     if err != nil {
         http.Error(w, "DB query error", http.StatusInternalServerError)
         return
@@ -83,6 +116,7 @@ func getStocksHandler(w http.ResponseWriter, r *http.Request) {
             &s.TargetFrom,
             &s.TargetTo,
             &stockTime,
+            &s.CurrentPrice, // Añadimos el campo de precio actual
         )
         if err != nil {
             http.Error(w, "DB scan error", http.StatusInternalServerError)
@@ -162,11 +196,20 @@ func main() {
 		os.Exit(1)
 	}
 
+    for i, stock := range apiResp.Items {
+        price, err := fetchAlphaVantagePrice(stock.Ticker)
+        if err != nil {
+            fmt.Printf("AlphaVantage error for %s: %v\n", stock.Ticker, err)
+            price = 0 // or continue
+        }
+        apiResp.Items[i].CurrentPrice = price
+    }
+
 	// Recorremos cada acción recibida del API y la imprimimos en un formato legible.
 	for _, stock := range apiResp.Items {
 		// Mostramos los detalles clave de cada recomendación de acción en una sola línea formateada.
 		fmt.Printf(
-			"Ticker: %s | Company: %s | Brokerage: %s | Action: %s | Rating: %s → %s | Target: %s → %s | Time: %s\n",
+			"Ticker: %s | Company: %s | Brokerage: %s | Action: %s | Rating: %s → %s | Target: %s → %s | Time: %s\n | Current Price: %.2f\n",
 			stock.Ticker,
 			stock.Company,
 			stock.Brokerage,
@@ -176,6 +219,7 @@ func main() {
 			stock.TargetFrom,
 			stock.TargetTo,
 			stock.StockTime,
+			stock.CurrentPrice,
 		)
 	}
 
@@ -204,6 +248,7 @@ func main() {
             rating_to STRING,
             target_from STRING,
             target_to STRING,
+            current_price FLOAT8,
             PRIMARY KEY (ticker, stock_time)
             );
     `)
@@ -219,9 +264,9 @@ func main() {
         _, err := conn.Exec(context.Background(),
             `UPSERT INTO stock_info (
                 ticker, company, brokerage, stock_action,
-                rating_from, rating_to, target_from, target_to, stock_time
+                rating_from, rating_to, target_from, target_to, stock_time, current_price
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, // Usamos placeholders para evitar SQL injection
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, // Usamos placeholders para evitar SQL injection
             stock.Ticker,       // $1 → símbolo de la acción
             stock.Company,      // $2 → nombre de la empresa
             stock.Brokerage,    // $3 → casa de bolsa
@@ -231,6 +276,7 @@ func main() {
             stock.TargetFrom,   // $7 → precio objetivo anterior
             stock.TargetTo,     // $8 → nuevo precio objetivo
             stock.StockTime,         // $9 → marca de tiempo
+            stock.CurrentPrice, // $10 → precio actual de la acción
         )
 
         // Si ocurre un error al insertar esta fila, lo mostramos
