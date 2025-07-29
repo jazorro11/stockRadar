@@ -6,12 +6,12 @@
 
 ## Estructura del proyecto
 
-StockRadar/
-├── backend/ # API REST en Go, integración con Finnhub y CockroachDB
-│ └── README.md
-├── frontend/ # Aplicación web en Vue 3 + Pinia + Tailwind CSS
-│ └── README.md
-└── README.md # (este archivo)
+StockRadar/ <br/>
+├── backend/ # API REST en Go, integración con Finnhub y CockroachDB <br/>
+│ └── README.md <br/>
+├── frontend/ # Aplicación web en Vue 3 + Pinia + Tailwind CSS <br/>
+│ └── README.md <br/>
+└── README.md # (este archivo) <br/>
 
 ---
 
