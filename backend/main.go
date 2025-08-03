@@ -19,6 +19,8 @@ import (
 
 	"github.com/jackc/pgx/v5" // Driver para conectar y operar con bases de datos PostgreSQL/CockroachDB.
 
+	"math"
+
 	finnhub "github.com/Finnhub-Stock-API/finnhub-go/v2" // SDK para consumir la API de Finnhub.
 )
 
@@ -53,7 +55,9 @@ type StockInfo struct {
     Beta                  float64 `json:"beta"`                    // Beta (volatilidad relativa).
     CurrentPrice          float64 `json:"current_price"`           // Precio actual de la acción.
     Score                 float64 `json:"score"`                   // Puntaje calculado según criterios cuantitativos.
+    Normalized            float64 `json:"normalized"` 
 }
+
 
 // UnmarshalJSON personalizado para convertir los campos target_from y target_to de string (con $) a float64.
 func (s *StockInfo) UnmarshalJSON(data []byte) error {
@@ -135,6 +139,43 @@ func enrichWithFinnhub(stock *StockInfo) error {
     return nil
 }
 
+func NormalizeScores(stocks []*StockInfo) {
+    // 1. Transformar valores negativos
+    for _, s := range stocks {
+        if s.Score < 0 {
+            abs := math.Abs(s.Score)
+            log10 := math.Log10(abs)
+            s.Score = 1 / math.Pow(10, log10)
+        }
+    }
+
+    // 2. Encontrar min y max (después de transformar negativos)
+    minScore := math.MaxFloat64
+    maxScore := -math.MaxFloat64
+    for _, s := range stocks {
+        if s.Score < minScore {
+            minScore = s.Score
+        }
+        if s.Score > maxScore {
+            maxScore = s.Score
+        }
+    }
+
+    // 3. Normalizar y actualizar el campo Normalized
+    for _, s := range stocks {
+        if maxScore != minScore {
+            norm := (s.Score - minScore) / (maxScore - minScore)
+            if norm < 0 {
+                s.Normalized = 0
+            } else {
+                s.Normalized = norm
+            }
+        } else {
+            s.Normalized = 0.5
+        }
+    }
+}
+
 // Calcula un puntaje cuantitativo para cada acción usando todos los campos numéricos relevantes.
 func scoreStock(stock StockInfo) float64 {
     score := 0.0
@@ -142,66 +183,70 @@ func scoreStock(stock StockInfo) float64 {
     // 1. Potencial de ganancia (target - actual) / actual
     if stock.CurrentPrice > 0 && stock.TargetTo > 0 {
         potential := (stock.TargetTo - stock.CurrentPrice) / stock.CurrentPrice
-        score += potential * 100 // convertir a %
+        score += potential * 150 // convertir a %
     }
 
     // 2. Precio objetivo anterior (TargetFrom): bonifica si el nuevo target es mayor
     if stock.TargetFrom > 0 && stock.TargetTo > stock.TargetFrom {
-        score += (stock.TargetTo - stock.TargetFrom) * 0.1
+        score += (stock.TargetTo - stock.TargetFrom) * 0.2
     }
 
     // 3. Market Cap: bonifica empresas grandes, penaliza muy pequeñas
     if stock.MarketCap > 1e10 {
-        score += 2
+        score += 5
     } else if stock.MarketCap < 1e9 {
-        score -= 2
+        score -= 5
     }
 
-    // 4. EPS TTM: bonifica EPS positivo
+    // 4. EPS TTM: bonificación más fuerte si es positivo
     if stock.EpsTTM > 0 {
-        score += stock.EpsTTM * 0.1
+        score += stock.EpsTTM * 0.5
+    } else {
+        score += stock.EpsTTM * 1.5 // castigo mayor si es negativo
     }
 
     // 5. P/E TTM: menor a 20 es razonable
     if stock.PeTTM > 0 && stock.PeTTM < 20 {
-        score += (20 - stock.PeTTM) * 0.5
+        score += (20 - stock.PeTTM) * 1.0
     } else if stock.PeTTM <= 0 {
-        score -= 5 // castigo por no tener ganancias
+        score -= 10 // castigo por no tener ganancias
     }
 
-    // 6. P/B: menor a 3 es razonable
+    // 6. P/B: mayor penalización a valores altos
     if stock.Pb > 0 && stock.Pb < 3 {
-        score += (3 - stock.Pb) * 2
+        score += (3 - stock.Pb) * 3
+    } else if stock.Pb >= 3 {
+        score -= (stock.Pb - 3) * 1.5
     }
 
     // 7. Dividend Yield: bonifica yield alto
     if stock.DividendYield > 1 {
-        score += stock.DividendYield * 0.5
+        score += stock.DividendYield * 1.0
     }
 
     // 8. 52 Week High/Low: bonifica si el precio actual está más cerca del mínimo anual
     if stock.Week52High > 0 && stock.Week52Low > 0 && stock.CurrentPrice > 0 {
         rel := (stock.CurrentPrice - stock.Week52Low) / (stock.Week52High - stock.Week52Low)
-        score += (1 - rel) * 2 // más cerca del mínimo, mejor
+        score += (1 - rel) * 5 // más cerca del mínimo, mejor
     }
 
     // 9. Revenue Growth YoY: bonifica crecimiento
-    score += stock.RevenueGrowthTTMYoy * 0.2
+    score += stock.RevenueGrowthTTMYoy * 0.6
 
     // 10. Net Profit Margin TTM: bonifica margen positivo
     if stock.NetProfitMarginTTM > 0 {
-        score += stock.NetProfitMarginTTM * 0.2
+        score += stock.NetProfitMarginTTM * 0.4
     } else {
-        score += stock.NetProfitMarginTTM * 0.1 // penaliza menos los negativos
+        score += stock.NetProfitMarginTTM * 0.2 // penaliza menos los negativos
     }
 
     // 11. Beta: ideal entre 0.8 y 1.2
     if stock.Beta >= 0.8 && stock.Beta <= 1.2 {
-        score += 3
+        score += 5
     } else if stock.Beta < 0.8 {
-        score += 1
+        score += 2
     } else {
-        score -= 2
+        score -= (stock.Beta - 1.2) * 3 // castigo proporcional
     }
 
     return score
@@ -231,7 +276,7 @@ func getStocksHandler(w http.ResponseWriter, r *http.Request) {
     // Consulta SQL para obtener todos los campos de la tabla stock_info
     rows, err := conn.Query(context.Background(), `SELECT ticker, company, brokerage, stock_action, rating_from, rating_to, target_from, target_to, 
         stock_time, market_cap, eps_ttm, pe_ttm, pb, dividend_yield, week_52_high, week_52_low, revenue_growth_ttm_yoy, 
-        net_profit_margin_ttm, beta , current_price, score FROM stock_info`)
+        net_profit_margin_ttm, beta , current_price, score, normalized FROM stock_info`)
     if err != nil {
         http.Error(w, "DB query error", http.StatusInternalServerError)
         return
@@ -264,6 +309,7 @@ func getStocksHandler(w http.ResponseWriter, r *http.Request) {
             &s.Beta,
             &s.CurrentPrice,
             &s.Score,
+            &s.Normalized,
         )
         if err != nil {
             http.Error(w, "DB scan error", http.StatusInternalServerError)
@@ -348,10 +394,20 @@ func main() {
         apiResp.Items[i].Score = scoreStock(apiResp.Items[i])
     }
 
+    for _, s := range apiResp.Items {
+    fmt.Println("Score antes de normalizar:", s.Score)
+    }
+    // Prepara un slice de punteros
+    var stockPtrs []*StockInfo
+    for i := range apiResp.Items {
+        stockPtrs = append(stockPtrs, &apiResp.Items[i])
+    }
+    NormalizeScores(stockPtrs)
+
     // Imprimir en consola los datos enriquecidos y el puntaje
     for _, stock := range apiResp.Items {
         fmt.Printf(
-            "Ticker: %s | Company: %s | Brokerage: %s | Action: %s | Rating: %s → %s | Target: %.2f → %.2f | Time: %s\n | Market Cap: %.2f | EPS: %.2f | P/E: %.2f | P/B: %.2f | Dividend Yield: %.2f | 52W High: %.2f | 52W Low: %.2f | Revenue Growth: %.2f | Net Profit Margin: %.2f | Beta: %.2f | Current Price: %.2f | Score: %.2f\n",
+            "Ticker: %s | Company: %s | Brokerage: %s | Action: %s | Rating: %s → %s | Target: %.2f → %.2f | Time: %s\n | Market Cap: %.2f | EPS: %.2f | P/E: %.2f | P/B: %.2f | Dividend Yield: %.2f | 52W High: %.2f | 52W Low: %.2f | Revenue Growth: %.2f | Net Profit Margin: %.2f | Beta: %.2f | Current Price: %.2f | Score: %.2f | Normalized: %.2f\n",
             stock.Ticker,
             stock.Company,
             stock.Brokerage,
@@ -373,6 +429,7 @@ func main() {
             stock.Beta,
             stock.CurrentPrice,
             stock.Score,
+            stock.Normalized,
         )
     }
 
@@ -410,6 +467,7 @@ func main() {
             beta FLOAT8,
             current_price FLOAT8,
             score FLOAT8,
+            normalized FLOAT8,
             PRIMARY KEY (ticker, stock_time)
         );
     `)
@@ -426,9 +484,9 @@ func main() {
                 rating_from, rating_to, target_from, target_to, stock_time,
                 market_cap, eps_ttm, pe_ttm, pb, dividend_yield,
                 week_52_high, week_52_low, revenue_growth_ttm_yoy,
-                net_profit_margin_ttm, beta, current_price, score
+                net_profit_margin_ttm, beta, current_price, score, normalized
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
             stock.Ticker,
             stock.Company,
             stock.Brokerage,
@@ -450,10 +508,14 @@ func main() {
             stock.Beta,
             stock.CurrentPrice,
             stock.Score,
+            stock.Normalized,
         )
         if err != nil {
             fmt.Printf("Error inserting stock %s: %v\n", stock.Ticker, err)
         }
+    }
+    for _, stock := range apiResp.Items {
+        fmt.Printf("Ticker: %s | Score: %.2f | Normalized: %.4f\n", stock.Ticker, stock.Score, stock.Normalized)
     }
 
     fmt.Println("Datos almacenados en CockroachDB correctamente.")
