@@ -60,6 +60,7 @@ function searchTicker() {
 function selectStock(stock) {
   searchValue.value = stock.ticker
   searchTicker()
+  searchValue.value = '' // Borra el input
 }
 
 </script>

@@ -15,6 +15,7 @@ function handleNotFound(ticker) {
   foundStock.value = null
   notFoundTicker.value = ticker
   console.log('Stock HEADER no encontrado:', ticker)
+  searchValue.value = '' // Borra el input
 }
 function handleFound(stock) {
   foundStock.value = stock
