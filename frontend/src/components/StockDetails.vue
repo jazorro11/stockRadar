@@ -5,6 +5,7 @@ import { useStocksStore } from '@/stores/stocks'
 const route = useRoute()
 const store = useStocksStore()
 const ticker = route.params.ticker as string
+const stock = (store.stocks as Stock[]).find(s => s.ticker === ticker)
 
 type Stock = {
   ticker: string
@@ -31,7 +32,7 @@ type Stock = {
   normalized: number
 }
 
-const stock = (store.stocks as Stock[]).find(s => s.ticker === ticker)
+
 
 function getRecommendation(normalized: number): string {
   if (normalized < 0.33) return 'Fuerte Venta'
@@ -47,9 +48,7 @@ function getColor(normalized: number): string {
 </script>
 
 <template>
-
- 
-
+    
   <div class="max-w-2xl mx-auto mt-12 p-8 bg-white rounded-2xl shadow">
     <h1 class="text-3xl font-bold mb-4">Detalles de {{ ticker }}</h1>
     <div v-if="stock">
@@ -80,15 +79,15 @@ function getColor(normalized: number): string {
     </div>
   </div>
 
-     <div class="w-full flex flex-col items-center my-8">
+  <div class="w-full flex flex-col items-center my-8">
   <!-- Barra de colores base -->
   <div class="w-full max-w-md h-4 rounded-full flex overflow-hidden">
-    <div class="bg-red-500 h-full" :style="{ width: '33.33%' }"></div>
-    <div class="bg-yellow-400 h-full" :style="{ width: '33.33%' }"></div>
-    <div class="bg-green-500 h-full" :style="{ width: '33.34%' }"></div>
+    <div class="bg-red-500 h-full" style="width:33.33%"></div>
+    <div class="bg-yellow-400 h-full" style="width:33.33%"></div>
+    <div class="bg-green-500 h-full" style="width:33.34%"></div>
   </div>
   <!-- Indicador de posición -->
-  <div class="relative w-full max-w-md">
+  <div class="relative w-full max-w-md" style="height: 12px;">
     <div
       class="absolute top-0 left-0 -mt-2"
       :style="{ left: `calc(${(stock?.normalized ?? 0) * 100}% - 12px)` }"

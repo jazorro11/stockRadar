@@ -24,6 +24,12 @@ function handleNotFound(ticker) {
   notFoundTicker.value = ticker
   console.log('Stock no encontrado:', ticker)
 }
+function handleFound(stock) {
+  foundStock.value = stock
+  notFoundTicker.value = null
+  console.log('Stock encontrado:', stock)
+  router.push({ name: 'StockDetails', params: { ticker: stock.ticker } })
+}
 
 </script>
 
@@ -33,7 +39,7 @@ function handleNotFound(ticker) {
     <p class="text-[#1B2821] text-center font-roboto text-[80px] font-semibold leading-[88px] tracking-[-2px]">
       Análisis técnico profesional para cada acción
     </p>
-    <Search :is="true" :stocks="stocks" @found="handleFound" @notfound="handleNotFound" />
+    <Search :is="true" :stocks="store.stocks" @found="handleFound" @notfound="handleNotFound" />
 
     <p class="text-[#1B2821] font-roboto text-[56px] font-semibold leading-[52px] tracking-[-1.12px]">
       Recomendaciones de inversión para hoy
@@ -43,12 +49,12 @@ function handleNotFound(ticker) {
       <div v-if="topStocks.length === 0">Cargando o no encontrado</div>
     </div>
 
-    <div class="w-full mt-12">
+    <!-- <div class="w-full mt-12">
       <StockCard v-if="foundStock" :stock="foundStock" />
       <div v-else-if="notFoundTicker"
         class="flex justify-center items-center text-red-600 text-xl min-h-[120px] bg-white/70 rounded-2xl">
         No encontrado: {{ notFoundTicker }}
       </div>
-    </div>
+    </div> -->
   </main>
 </template>
