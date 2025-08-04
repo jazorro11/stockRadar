@@ -1,5 +1,17 @@
+
+<script setup>
+import { useRouter } from 'vue-router'
+const router = useRouter()
+function goHome() {
+  router.push({ path: '/' })
+}
+</script>
+
 <template>
-  <div class="flex items-center h-8 gap-1">
+  <div
+    class="flex items-center h-8 gap-1 cursor-pointer"
+    @click="goHome"
+  >
     <img
       src="@/assets/logomark.svg"
       alt="Cerdito"
