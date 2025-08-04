@@ -1,3 +1,17 @@
+<script setup>
+import { useRouter } from 'vue-router'
+const props = defineProps({
+  stock: {
+    type: Object,
+    required: true
+  }
+})
+const router = useRouter()
+function goToDetails() {
+  router.push({ name: 'StockDetails', params: { ticker: props.stock.ticker } })
+}
+</script>
+
 <template>
   <div class="flex flex-col gap-2 self-stretch p-8 rounded-2xl shadow w-full "
     style="background:rgba(255,255,255,0.5);">
@@ -31,26 +45,16 @@
     >
       {{ stock.brokerage }}
     </div>
-    <div
-      class="flex justify-between items-center text-[#1B2821] font-inter text-[15px] font-normal leading-[20px]"
-    >
+
+    <div class="flex justify-end mt-4">
       <button
-        class="flex justify-center items-center px-6 py-2 rounded-full bg-[#14AE5C] mt-2"
+        class="flex justify-center items-center px-6 py-2 rounded-full bg-[#14AE5C] text-[#010502] font-inter text-[15px] font-medium leading-[20px] hover:bg-[#189e53] transition-colors cursor-pointer"
         type="button"
+        @click="goToDetails"
       >
-        <span class="text-[#010502] font-inter text-[15px] font-medium leading-[20px]">
         Ver detalles
-      </span>
-    </button>
+      </button>
     </div>
+
   </div>
 </template>
-
-<script setup>
-defineProps({
-  stock: {
-    type: Object,
-    required: true
-  }
-})
-</script>
