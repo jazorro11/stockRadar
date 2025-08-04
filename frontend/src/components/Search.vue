@@ -25,6 +25,8 @@ const searchValue = ref('')
 function handleKeyup(e) {
   if (e.key === 'Enter') {
     searchTicker()
+    console.log('Enter pressed, searching for:', searchValue.value)
+    searchValue.value = '' // Borra el input
   }
 }
 
