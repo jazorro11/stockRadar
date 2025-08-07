@@ -56,6 +56,7 @@ type StockInfo struct {
     CurrentPrice          float64 `json:"current_price"`           // Precio actual de la acción.
     Score                 float64 `json:"score"`                   // Puntaje calculado según criterios cuantitativos.
     Normalized            float64 `json:"normalized"` 
+    Type                  string  `json:"type"`                    // Tipo de instrumento (ej: "Common Stock", etc).
 }
 
 
@@ -99,6 +100,23 @@ func enrichWithFinnhub(stock *StockInfo) error {
     }
     if quote.C != nil {
         stock.CurrentPrice = float64(*quote.C) // Precio actual
+    }
+
+    // Consulta el symbol lookup (similar a finnhub_client.symbol_lookup en Python)
+    symbolLookup, _, err := client.SymbolSearch(context.Background()).Q(stock.Ticker).Execute()
+    if err == nil && symbolLookup.Count != nil && *symbolLookup.Count > 0 {
+        // Toma el primer resultado
+        result := (*symbolLookup.Result)[0]
+        if result.Description != nil {
+            stock.Company = *result.Description
+        }
+        if result.Symbol != nil {
+            stock.Ticker = *result.Symbol
+        }
+
+        if result.Type != nil {
+            stock.Type = *result.Type
+        }
     }
 
     // Consulta los datos financieros básicos.
@@ -276,7 +294,7 @@ func getStocksHandler(w http.ResponseWriter, r *http.Request) {
     // Consulta SQL para obtener todos los campos de la tabla stock_info
     rows, err := conn.Query(context.Background(), `SELECT ticker, company, brokerage, stock_action, rating_from, rating_to, target_from, target_to, 
         stock_time, market_cap, eps_ttm, pe_ttm, pb, dividend_yield, week_52_high, week_52_low, revenue_growth_ttm_yoy, 
-        net_profit_margin_ttm, beta , current_price, score, normalized FROM stock_info`)
+        net_profit_margin_ttm, beta , current_price, score, normalized, type FROM stock_info`)
     if err != nil {
         http.Error(w, "DB query error", http.StatusInternalServerError)
         return
@@ -310,6 +328,7 @@ func getStocksHandler(w http.ResponseWriter, r *http.Request) {
             &s.CurrentPrice,
             &s.Score,
             &s.Normalized,
+            &s.Type,
         )
         if err != nil {
             http.Error(w, "DB scan error", http.StatusInternalServerError)
@@ -407,7 +426,7 @@ func main() {
     // Imprimir en consola los datos enriquecidos y el puntaje
     for _, stock := range apiResp.Items {
         fmt.Printf(
-            "Ticker: %s | Company: %s | Brokerage: %s | Action: %s | Rating: %s → %s | Target: %.2f → %.2f | Time: %s\n | Market Cap: %.2f | EPS: %.2f | P/E: %.2f | P/B: %.2f | Dividend Yield: %.2f | 52W High: %.2f | 52W Low: %.2f | Revenue Growth: %.2f | Net Profit Margin: %.2f | Beta: %.2f | Current Price: %.2f | Score: %.2f | Normalized: %.2f\n",
+            "Ticker: %s | Company: %s | Brokerage: %s | Action: %s | Rating: %s → %s | Target: %.2f → %.2f | Time: %s\n | Market Cap: %.2f | EPS: %.2f | P/E: %.2f | P/B: %.2f | Dividend Yield: %.2f | 52W High: %.2f | 52W Low: %.2f | Revenue Growth: %.2f | Net Profit Margin: %.2f | Beta: %.2f | Current Price: %.2f | Score: %.2f | Normalized: %.2f | Type: %s \n",
             stock.Ticker,
             stock.Company,
             stock.Brokerage,
@@ -430,6 +449,7 @@ func main() {
             stock.CurrentPrice,
             stock.Score,
             stock.Normalized,
+            stock.Type,
         )
     }
 
@@ -468,6 +488,7 @@ func main() {
             current_price FLOAT8,
             score FLOAT8,
             normalized FLOAT8,
+            type STRING,
             PRIMARY KEY (ticker, stock_time)
         );
     `)
@@ -484,9 +505,9 @@ func main() {
                 rating_from, rating_to, target_from, target_to, stock_time,
                 market_cap, eps_ttm, pe_ttm, pb, dividend_yield,
                 week_52_high, week_52_low, revenue_growth_ttm_yoy,
-                net_profit_margin_ttm, beta, current_price, score, normalized
+                net_profit_margin_ttm, beta, current_price, score, normalized, type
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
             stock.Ticker,
             stock.Company,
             stock.Brokerage,
@@ -509,13 +530,14 @@ func main() {
             stock.CurrentPrice,
             stock.Score,
             stock.Normalized,
+            stock.Type,
         )
         if err != nil {
             fmt.Printf("Error inserting stock %s: %v\n", stock.Ticker, err)
         }
     }
     for _, stock := range apiResp.Items {
-        fmt.Printf("Ticker: %s | Score: %.2f | Normalized: %.4f\n", stock.Ticker, stock.Score, stock.Normalized)
+        fmt.Printf("Ticker: %s | Score: %.2f | Normalized: %.4f | Type: %s\n", stock.Ticker, stock.Score, stock.Normalized, stock.Type)
     }
 
     fmt.Println("Datos almacenados en CockroachDB correctamente.")

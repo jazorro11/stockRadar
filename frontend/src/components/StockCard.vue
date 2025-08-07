@@ -17,19 +17,17 @@ function goToDetails() {
     style="background:rgba(255,255,255,0.5);">
     <div class="flex justify-between items-center">
       <span
-        class="align-self-stretch text-[#1B2821] font-inter text-[31px] font-semibold leading-[24px]
-        [display:-webkit-box] [overflow:hidden] [text-overflow:ellipsis] [white-space:normal]
-        [-webkit-line-clamp:1] [-webkit-box-orient:vertical]"
+        class="align-self-stretch text-[#1B2821] font-inter text-[31px] 
+        font-semibold leading-[36px] whitespace-nowrap overflow-hidden text-ellipsis"
       >
         {{ stock.ticker }}
       </span>
-      <span
-        class="text-[#0E7B41] font-inter text-[31px] font-semibold leading-[24px]
-        [letter-spacing:-0.085px] [display:-webkit-box] [overflow:hidden] [text-overflow:ellipsis] [white-space:normal]
-        [-webkit-line-clamp:1] [-webkit-box-orient:vertical]"
+      <div
+        class="text-[#0E7B41] font-inter text-[31px] font-semibold leading-[36px]
+        [letter-spacing:-0.085px] whitespace-nowrap overflow-hidden text-ellipsis"
       >
         ${{ Number(stock.current_price).toFixed(2) }}
-      </span>
+    </div>
     </div>
     <div
       class="align-self-stretch text-[#4B4A5C] font-inter text-[15px] font-medium leading-[24px]

@@ -48,13 +48,5 @@ function handleFound(stock) {
       <StockCard v-for="stock in topStocks" :key="stock.ticker" :stock="stock" />
       <div v-if="topStocks.length === 0">Cargando o no encontrado</div>
     </div>
-
-    <!-- <div class="w-full mt-12">
-      <StockCard v-if="foundStock" :stock="foundStock" />
-      <div v-else-if="notFoundTicker"
-        class="flex justify-center items-center text-red-600 text-xl min-h-[120px] bg-white/70 rounded-2xl">
-        No encontrado: {{ notFoundTicker }}
-      </div>
-    </div> -->
   </main>
 </template>
