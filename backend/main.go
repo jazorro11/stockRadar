@@ -3,25 +3,25 @@ package main
 
 // Importamos los paquetes necesarios para hacer solicitudes HTTP, leer datos, manejar errores, parsear JSON, etc.
 import (
-	"encoding/json" // Permite convertir entre JSON y estructuras Go.
-	"fmt"           // Sirve para imprimir texto en consola.
-	"io"            // Proporciona utilidades para leer el cuerpo de la respuesta HTTP.
-	"net/http"      // Permite crear clientes HTTP y hacer solicitudes.
-	"os"            // Permite interactuar con el sistema operativo (ej: salir del programa con os.Exit).
-	"strconv"       // Permite convertir cadenas a otros tipos de datos.
-	"strings"       // Permite manipular cadenas de texto.
+    "encoding/json" // Permite convertir entre JSON y estructuras Go.
+    "fmt"           // Sirve para imprimir texto en consola.
+    "io"            // Proporciona utilidades para leer el cuerpo de la respuesta HTTP.
+    "net/http"      // Permite crear clientes HTTP y hacer solicitudes.
+    "os"            // Permite interactuar con el sistema operativo (ej: salir del programa con os.Exit).
+    "strconv"       // Permite convertir cadenas a otros tipos de datos.
+    "strings"       // Permite manipular cadenas de texto.
 
-	"context" // Permite manejar el contexto de ejecución, útil para operaciones con base de datos y APIs externas.
+    "context" // Permite manejar el contexto de ejecución, útil para operaciones con base de datos y APIs externas.
 
-	"github.com/joho/godotenv" // Para cargar variables de entorno desde un archivo .env en desarrollo.
+    "github.com/joho/godotenv" // Para cargar variables de entorno desde un archivo .env en desarrollo.
 
-	"time" // Permite trabajar con fechas y horas.
+    "time" // Permite trabajar con fechas y horas.
 
-	"github.com/jackc/pgx/v5" // Driver para conectar y operar con bases de datos PostgreSQL/CockroachDB.
+    "github.com/jackc/pgx/v5" // Driver para conectar y operar con bases de datos PostgreSQL/CockroachDB.
 
-	"math"
+    "math"
 
-	finnhub "github.com/Finnhub-Stock-API/finnhub-go/v2" // SDK para consumir la API de Finnhub.
+    finnhub "github.com/Finnhub-Stock-API/finnhub-go/v2" // SDK para consumir la API de Finnhub.
 )
 
 // Estructura que representa la respuesta principal de la API externa.
@@ -55,10 +55,9 @@ type StockInfo struct {
     Beta                  float64 `json:"beta"`                    // Beta (volatilidad relativa).
     CurrentPrice          float64 `json:"current_price"`           // Precio actual de la acción.
     Score                 float64 `json:"score"`                   // Puntaje calculado según criterios cuantitativos.
-    Normalized            float64 `json:"normalized"` 
+    Normalized            float64 `json:"normalized"`              // Puntaje normalizado.
     Type                  string  `json:"type"`                    // Tipo de instrumento (ej: "Common Stock", etc).
 }
-
 
 // UnmarshalJSON personalizado para convertir los campos target_from y target_to de string (con $) a float64.
 func (s *StockInfo) UnmarshalJSON(data []byte) error {
@@ -157,6 +156,7 @@ func enrichWithFinnhub(stock *StockInfo) error {
     return nil
 }
 
+// Normaliza los puntajes de las acciones para que estén en el rango [0,1].
 func NormalizeScores(stocks []*StockInfo) {
     // 1. Transformar valores negativos
     for _, s := range stocks {
@@ -357,7 +357,7 @@ func main() {
     apiKey := os.Getenv("API_KEY")
 
     // Crear cliente HTTP para consumir la API externa
-	client := &http.Client{}
+    client := &http.Client{}
 
     // Construir la solicitud HTTP GET
     req, err := http.NewRequest("GET", apiURL, nil)
@@ -414,7 +414,7 @@ func main() {
     }
 
     for _, s := range apiResp.Items {
-    fmt.Println("Score antes de normalizar:", s.Score)
+        fmt.Println("Score antes de normalizar:", s.Score)
     }
     // Prepara un slice de punteros
     var stockPtrs []*StockInfo

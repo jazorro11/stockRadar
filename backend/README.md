@@ -15,34 +15,32 @@ Este backend está desarrollado en Go y expone una API REST para consultar recom
   API_KEY=<tu_api_key_de_recomendaciones>
   FINNHUB_API_KEY=<tu_api_key_de_finnhub>
   COCKROACHDB_URL=postgresql://<usuario>:<contraseña>@<host>:<puerto>/<db>?sslmode=disable
+  ```
 ---
 
 ## Instalación y ejecución local
 
 1. **Clona el repositorio y entra a la carpeta del backend:**
- ```sh
- git clone <url-del-repo>
- cd StockRadar/backend
- ```
+   ```sh
+   git clone <url-del-repo>
+   cd StockRadar/backend
+   ```
 2. **Instala las dependencias:**
- ```sh
- go mod tidy
- ```
+   ```sh
+   go mod tidy
+   ```
 3. **Configura el archivo `.env`:**
     - Completa las variables necesarias, como `FINNHUB_API_KEY` y los detalles de conexión a CockroachDB.
-4. **Ejecuta las migraciones de la base de datos:**
- ```sh
- migrate -path db/migrations -database "cockroachdb://<usuario>:<password>@<host>:<puerto>/<nombre-db>?sslmode=disable" up
- ```
-5. **Inicia el servidor:**
- ```sh
- go run main.go
- ```
-6. **Accede a la API:**
+4. **Ejecuta el backend (la migración de la base de datos es automática):**
+   ```sh
+   go run main.go
+   ```
+5. **Accede a la API:**
    - La API debería estar corriendo en `http://localhost:8080`
    - Puedes usar herramientas como Postman o curl para interactuar con ella.
 
 ---
+
 ## ¿Por qué el servidor está alojado localmente?
 
 **El backend se ejecuta localmente** para facilitar el desarrollo, pruebas y depuración.  
@@ -50,20 +48,22 @@ Puedes conectarlo fácilmente con el frontend (por ejemplo, en Vue) y con tu bas
 En producción, puedes desplegarlo en cualquier servidor compatible con Go (VPS, Docker, servicios cloud, etc).
 
 ---
+
 ## Comandos útiles
 Instalar dependencias:
- ```sh
- go mod tidy
- ```
+```sh
+go mod tidy
+```
 Ejecutar el servidor:
- ```sh
+```sh
 go run main.go
- ```
+```
 Actualizar dependencias:
- ```sh
+```sh
 go get -u
- ```
+```
 ---
+
 ## Diccionario
 
 ### Funciones principales
@@ -73,6 +73,7 @@ go get -u
 | `main()` | Ninguno | Ninguno *(efectos colaterales: ejecuta todo el flujo del backend)* | Orquesta la carga de variables de entorno, consulta la API externa, enriquece los datos con Finnhub, calcula el score, almacena en CockroachDB y expone la API REST. |
 | `enrichWithFinnhub(stock *StockInfo) error` | `stock`: puntero a `StockInfo` | `error`: si falla la consulta a Finnhub | Enriquece los datos con información de Finnhub: precio actual, market cap, EPS, P/E, P/B, dividend yield, 52W high/low, revenue growth, net profit margin y beta. |
 | `scoreStock(stock StockInfo) float64` | `stock`: estructura con campos numéricos | `float64`: puntaje calculado | Calcula un puntaje cuantitativo para cada acción según sus métricas. |
+| `NormalizeScores(stocks []*StockInfo)` | `stocks`: slice de punteros a StockInfo | Ninguno | Normaliza los puntajes de todas las acciones al rango [0,1] para comparación relativa. |
 | `getStocksHandler(w http.ResponseWriter, r *http.Request)` | `w`: ResponseWriter, `r`: Request | Ninguno *(responde con JSON)* | Expone los datos de acciones vía API REST en `/stocks`. |
 | `parseDollarString(val string) (float64, error)` | `val`: string con `$` y/o comas | `float64`: valor numérico <br> `error`: si la conversión falla | Convierte strings con símbolos de dólar y comas a `float64`. |
 | `UnmarshalJSON` *(método de `StockInfo`)* | `data`: bytes JSON | `error`: si la conversión falla | Convierte `target_from` y `target_to` de string con `$` a `float64` al deserializar JSON. |
@@ -103,11 +104,13 @@ Representa una acción bursátil con todos los campos relevantes.
 | `dividend_yield`         | float64  | Rendimiento por dividendo                        |
 | `week_52_high`           | float64  | Máximo de 52 semanas                             |
 | `week_52_low`            | float64  | Mínimo de 52 semanas                             |
-| `revenue_growth_ttm_yoy`| float64  | Crecimiento de ingresos interanual               |
-| `net_profit_margin_ttm` | float64  | Margen de beneficio neto                         |
+| `revenue_growth_ttm_yoy` | float64  | Crecimiento de ingresos interanual               |
+| `net_profit_margin_ttm`  | float64  | Margen de beneficio neto                         |
 | `beta`                   | float64  | Beta (volatilidad relativa)                      |
 | `current_price`          | float64  | Precio actual de la acción                       |
 | `score`                  | float64  | Puntaje calculado según criterios cuantitativos  |
+| `normalized`             | float64  | Puntaje normalizado (rango [0,1])                |
+| `type`                   | string   | Tipo de instrumento (ej: "Common Stock", etc.)   |
 
 ---
 
@@ -131,6 +134,7 @@ Representa una acción bursátil con todos los campos relevantes.
 | [`finnhub "github.com/Finnhub-Stock-API/finnhub-go/v2"`](https://github.com/Finnhub-Stock-API/finnhub-go) | SDK para consumir la API de Finnhub y obtener datos financieros. |
 
 ---
+
 ## Endpoints
 
 ### `GET /stocks`
@@ -160,11 +164,27 @@ Representa una acción bursátil con todos los campos relevantes.
       "net_profit_margin_ttm": -24.51,
       "beta": 1.06,
       "current_price": 3.53,
-      "score": 119.97
+      "score": 119.97,
+      "normalized": 0.82,
+      "type": "Common Stock"
     }
   ]
+  ```
 
 ---
+
+## Flujo general del backend
+
+1. **Carga de variables de entorno** desde `.env` usando `godotenv`.
+2. **Obtención de datos** desde una API externa de recomendaciones bursátiles.
+3. **Enriquecimiento de datos** con métricas financieras usando la API de Finnhub.
+4. **Cálculo de score cuantitativo** para cada acción con la función `scoreStock`.
+5. **Normalización de scores** al rango [0,1] con `NormalizeScores`.
+6. **Almacenamiento en CockroachDB** (creación automática de la tabla si no existe).
+7. **Exposición de la API REST** en `/stocks` para consulta desde el frontend.
+
+---
+
 ## Despliegue en producción
 
 Para desplegar este backend en un entorno de producción, sigue estos pasos:
