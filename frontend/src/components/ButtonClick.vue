@@ -2,7 +2,8 @@
   <div>
     <!-- Botón personalizado que emite un evento 'click' al hacer clic -->
     <button
-      @click="$emit('click')"
+      @click="$emit('button-click')"
+      
       class="flex justify-center items-center px-[40px] py-[24px] rounded-[40px] bg-[#14AE5C] transition-colors duration-300 cursor-pointer hover:bg-[#189e53]"
     >
       <!-- Texto del botón con estilos personalizados y sin eventos de puntero -->

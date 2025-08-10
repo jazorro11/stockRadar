@@ -13,11 +13,18 @@ export const useStocksStore = defineStore('stocks', {
     loading: false,
     // error: almacena cualquier error ocurrido durante la petición.
     error: null as null | unknown,
+    // Momento (epoch ms) de la última carga (para evitar refetch innecesario)
+    lastFetch: 0
   }),
   // Acciones del store (funciones que pueden modificar el estado).
   actions: {
     // Acción asíncrona para obtener la lista de acciones desde el backend.
-    async fetchStocks() {
+    async fetchStocks(force = false) {
+      // Evita refetch si ya hay datos recientes (ej: < 5 min) y no se fuerza.
+      const STALE_MS = 5 * 60 * 1000
+      if (!force && this.stocks.length > 0 && Date.now() - this.lastFetch < STALE_MS) {
+        return
+      }
       // Marca el estado como cargando.
       this.loading = true
       // Reinicia el error previo.
@@ -36,4 +43,10 @@ export const useStocksStore = defineStore('stocks', {
       }
     },
   },
+    // Persistencia (requiere haber registrado el plugin en main.ts)
+  persist: {
+    key: 'sr_stocks',
+    storage: localStorage,
+    paths: ['stocks', 'lastFetch'] // Solo lo necesario
+  }
 })
