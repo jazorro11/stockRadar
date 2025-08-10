@@ -2,6 +2,8 @@
 import { defineStore } from 'pinia'
 // Importa axios para realizar peticiones HTTP.
 import axios from 'axios'
+// Importa el tipo PersistedStateOptions para la persistencia.
+import type { PersistenceOptions } from 'pinia-plugin-persistedstate'
 
 // Define y exporta el store 'stocks' usando Pinia.
 export const useStocksStore = defineStore('stocks', {
@@ -48,5 +50,5 @@ export const useStocksStore = defineStore('stocks', {
     key: 'sr_stocks',
     storage: localStorage,
     paths: ['stocks', 'lastFetch'] // Solo lo necesario
-  }
+  } as PersistenceOptions
 })
