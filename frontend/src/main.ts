@@ -18,4 +18,5 @@ app.use(createPinia())
 // Registra el enrutador para la navegación entre vistas.
 app.use(router)
 
-// Monta la aplicación en el elemento con id 'app' en el
+// Monta la aplicación en el elemento con id 'app' en el HTML.
+app.mount('#app')
